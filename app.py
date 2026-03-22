@@ -115,7 +115,17 @@ def log_mood():
 
 @app.route("/api/verify", methods=["POST"])
 def verify_attendance():
-    data = request.json
+    if request.is_json:
+        data = request.json
+    else:
+        # Handle FormData
+        data = request.form.to_dict()
+        if 'audio' in request.files:
+            audio_file = request.files['audio']
+            # We can read the audio here if needed, but for now we just acknowledge it
+            # Current implementation uses fake_embedding anyway
+            print(f"Received audio file: {audio_file.filename}")
+
     name = data.get("name", "").strip()
     spoken_text = data.get("spoken_text", "").lower()
     challenge_answer = data.get("challenge_answer", "").lower()

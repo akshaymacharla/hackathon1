@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -74,7 +74,7 @@
       <div class="say-this" id="say-this-text">Loading...</div>
     </div>
     <div class="record-section">
-      <button class="btn btn-mic btn-large" id="record-btn" onclick="startRecording()">🎤 Start Recording</button>
+      <button class="btn btn-mic btn-large" id="recordBtn">🎤 Start Recording</button>
       <div class="record-status hidden" id="record-status">
         <div class="pulse-ring"></div>
         <span>Recording... speak now</span>
@@ -221,76 +221,140 @@ function goToVerify() {
   speak("Please say: I am your name, then answer the challenge.");
 }
 
-async function startRecording() {
-  if (!navigator.mediaDevices) { alert("Microphone not supported."); return; }
-  const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-  recognition.lang = "en-IN";
-  recognition.onresult = (e) => {
-    spokenText = e.results[0][0].transcript;
-    document.getElementById("transcript-box").textContent = '"' + spokenText + '"';
-  };
-  recognition.start();
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  mediaRecorder = new MediaRecorder(stream);
-  audioChunks = [];
-  mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-  mediaRecorder.onstop = () => {
-    audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-    document.getElementById("verify-btn").classList.remove("hidden");
-    document.getElementById("record-status").classList.add("hidden");
-  };
-  mediaRecorder.start();
-  document.getElementById("record-btn").textContent = "⏹ Stop Recording";
-  document.getElementById("record-btn").onclick = stopRecording;
-  document.getElementById("record-status").classList.remove("hidden");
-  setTimeout(stopRecording, 5000);
-}
+document.getElementById("recordBtn").addEventListener("click", startRecording);
 
-function stopRecording() {
-  if (mediaRecorder && mediaRecorder.state !== "inactive") {
-    mediaRecorder.stop();
-    document.getElementById("record-btn").textContent = "🎤 Record Again";
-    document.getElementById("record-btn").onclick = startRecording;
+async function startRecording() {
+  console.log("Recording started");
+  const recordBtn = document.getElementById("recordBtn");
+  const recordStatus = document.getElementById("record-status");
+  const name = document.getElementById("student-name").value.trim();
+
+  if (!name) {
+    alert("Please enter your name first!");
+    return;
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    alert("Microphone access is not supported by this browser.");
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+
+    // Setup Speech Recognition for transcription
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'en-IN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event) => {
+      spokenText = event.results[0][0].transcript;
+      document.getElementById("transcript-box").textContent = "You said: " + spokenText;
+    };
+
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error);
+    };
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunks.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      console.log("Recording stopped");
+      audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+      console.log("Audio Blob:", audioBlob);
+      console.log("Audio blob created");
+      
+      recordStatus.classList.add("hidden");
+      recordBtn.disabled = false;
+      recordBtn.textContent = "🎤 Record Again";
+      
+      if (spokenText) {
+        verifyAttendance();
+      } else {
+        alert("Could not hear you. Please try again.");
+      }
+    };
+
+    mediaRecorder.start();
+    recognition.start();
+
+    // UI Updates
+    recordBtn.textContent = "Recording...";
+    recordBtn.disabled = true;
+    recordStatus.classList.remove("hidden");
+
+    // Automatically stop after 3 seconds
+    setTimeout(() => {
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+        recognition.stop();
+        stream.getTracks().forEach(track => track.stop());
+      }
+    }, 3000);
+
+  } catch (err) {
+    console.error("Microphone error:", err);
+    alert("Error accessing microphone: " + err.message);
   }
 }
 
 async function verifyAttendance() {
   const name = document.getElementById("student-name").value.trim();
   if (!name) { alert("Please enter your name."); return; }
-  if (!spokenText) { alert("Please record your voice first."); return; }
+  if (!spokenText || !audioBlob) { alert("Please record your voice first."); return; }
+
   document.getElementById("processing").classList.remove("hidden");
   document.getElementById("verify-btn").disabled = true;
-  let audioB64 = "";
-  if (audioBlob) {
-    const buf = await audioBlob.arrayBuffer();
-    audioB64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-  }
-  const res = await fetch("/api/verify", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, spoken_text: spokenText, challenge_answer: challenge.answer, challenge_type: challenge.type, session_id: sessionId, mood: studentMood, audio: audioB64 })
-  });
-  const data = await res.json();
-  document.getElementById("processing").classList.add("hidden");
-  showStep("step-result");
-  if (data.success) {
-    document.getElementById("result-success").classList.remove("hidden");
-    document.getElementById("result-fail").classList.add("hidden");
-    document.getElementById("result-name").textContent = "✅ " + data.name;
-    document.getElementById("streak-badge").textContent = "🔥 " + data.streak + " day streak";
-    document.getElementById("rank-badge").textContent = "🏆 Rank #" + data.leaderboard_rank;
-    document.getElementById("confirmation-text").textContent = data.confirmation;
-    if (data.late) { document.getElementById("late-badge").classList.remove("hidden"); document.getElementById("late-badge").textContent = "⏰ Late arrival"; }
-    await speak(data.confirmation);
-  } else if (data.suspicious) {
-    document.getElementById("result-suspicious").classList.remove("hidden");
-    document.getElementById("result-success").classList.add("hidden");
-    document.getElementById("result-fail").classList.add("hidden");
-    await speak("Suspicious activity detected. Your session has been locked.");
-  } else {
-    document.getElementById("result-fail").classList.remove("hidden");
-    document.getElementById("result-success").classList.add("hidden");
-    document.getElementById("fail-reason").textContent = data.reason;
-    await speak(data.reason + ". Please try again.");
+
+  const formData = new FormData();
+  formData.append("name", name);
+  formData.append("spoken_text", spokenText);
+  formData.append("challenge_answer", challenge.answer);
+  formData.append("challenge_type", challenge.type);
+  formData.append("session_id", sessionId);
+  formData.append("mood", studentMood);
+  formData.append("audio", audioBlob, "attendance_audio.wav");
+
+  try {
+    const res = await fetch("/api/verify", {
+      method: "POST",
+      body: formData
+    });
+    const data = await res.json();
+    document.getElementById("processing").classList.add("hidden");
+    showStep("step-result");
+    if (data.success) {
+      document.getElementById("result-success").classList.remove("hidden");
+      document.getElementById("result-fail").classList.add("hidden");
+      document.getElementById("result-name").textContent = "✅ " + data.name;
+      document.getElementById("streak-badge").textContent = "🔥 " + data.streak + " day streak";
+      document.getElementById("rank-badge").textContent = "🏆 Rank #" + data.leaderboard_rank;
+      document.getElementById("confirmation-text").textContent = data.confirmation;
+      if (data.late) { document.getElementById("late-badge").classList.remove("hidden"); document.getElementById("late-badge").textContent = "⏰ Late arrival"; }
+      await speak(data.confirmation);
+    } else if (data.suspicious) {
+      document.getElementById("result-suspicious").classList.remove("hidden");
+      document.getElementById("result-success").classList.add("hidden");
+      document.getElementById("result-fail").classList.add("hidden");
+      await speak("Suspicious activity detected. Your session has been locked.");
+    } else {
+      document.getElementById("result-fail").classList.remove("hidden");
+      document.getElementById("result-success").classList.add("hidden");
+      document.getElementById("fail-reason").textContent = data.reason;
+      await speak(data.reason + ". Please try again.");
+    }
+  } catch (err) {
+    console.error("Verification error:", err);
+    alert("An error occurred during verification. Please try again.");
+    document.getElementById("processing").classList.add("hidden");
+    document.getElementById("verify-btn").disabled = false;
   }
 }
 
