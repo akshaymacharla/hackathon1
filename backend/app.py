@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import numpy as np
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='../frontend/templates', static_folder='../frontend/static')
 app.secret_key = "voice_attendance_secret_2024"
 
 sessions = {}
