@@ -1,4 +1,13 @@
 flask
+flask-cors
 numpy
-requests
+scipy
+soundfile
+librosa
+resemblyzer
+torch
+setuptools
+wheel
+gunicorn
 python-dotenv
+requests

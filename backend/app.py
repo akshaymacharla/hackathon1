@@ -3,9 +3,18 @@ import uuid, time, random, os
 from datetime import datetime, timedelta
 from collections import defaultdict
 import numpy as np
+import torch
+from resemblyzer import VoiceEncoder, preprocess_wav
+import io
+import librosa
+from flask_cors import CORS
 
 app = Flask(__name__, template_folder='../frontend/templates', static_folder='../frontend/static')
+CORS(app)
 app.secret_key = "voice_attendance_secret_2024"
+
+# Load VoiceEncoder only once (global instance)
+encoder = VoiceEncoder("cpu") # Render free tier uses CPU
 
 sessions = {}
 attendance = {}
@@ -36,8 +45,16 @@ def cosine_similarity(a, b):
     a, b = np.array(a), np.array(b)
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
 
-def fake_embedding():
-    return (np.random.rand(256) * 0.5 + 0.5).tolist()
+def get_voice_embedding(audio_file):
+    # Load audio from file object
+    try:
+        y, sr = librosa.load(audio_file, sr=16000)
+        wav = preprocess_wav(y)
+        embed = encoder.embed_utterance(wav)
+        return embed.tolist()
+    except Exception as e:
+        print(f"Error generating embedding: {e}")
+        return None
 
 @app.route("/")
 def index():
@@ -170,7 +187,16 @@ def verify_attendance():
             return jsonify({"success": False, "reason": "Too many failed attempts. Suspicious activity detected!", "suspicious": True})
         return jsonify({"success": False, "reason": "Challenge answer incorrect. Try again."})
 
-    current_embedding = fake_embedding()
+    current_embedding = None
+    if 'audio' in request.files:
+        audio_file = request.files['audio']
+        current_embedding = get_voice_embedding(audio_file)
+    
+    if not current_embedding:
+        # Fallback to fake if real fails, but for Level 3 we should fail
+        # current_embedding = (np.random.rand(256) * 0.5 + 0.5).tolist()
+        return jsonify({"success": False, "reason": "Failed to process audio recording"})
+
     similarity = 1.0
     if name in voice_profiles:
         similarity = cosine_similarity(voice_profiles[name], current_embedding)
