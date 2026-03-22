@@ -9,7 +9,7 @@ import io
 import librosa
 from flask_cors import CORS
 
-app = Flask(__name__, template_folder='../frontend/templates', static_folder='../frontend/static')
+app = Flask(__name__)
 CORS(app)
 app.secret_key = "voice_attendance_secret_2024"
 
